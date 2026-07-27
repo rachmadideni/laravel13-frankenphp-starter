@@ -1,0 +1,405 @@
+{
+  "name": "laravel13-frankenphp-starter",
+  "description": "Boilerplate reusable: Laravel 13 + FrankenPHP/Octane + Reverb + Horizon + Postgres + Redis + Sanctum + spatie/permission + S3 + Vue 3/Vuetify/Pinia, dijalankan dengan Podman (compose untuk dev, Quadlet untuk produksi). Tanpa domain bisnis.",
+  "branchName": "feat/boilerplate",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Scaffold Laravel 13 + struktur repo",
+      "description": "Buat proyek Laravel 13 (PHP 8.3) dan kerangka direktori sesuai PRD §7: frontend/, container/, deploy/quadlet/, bin/, docs/. Tambahkan .env.example, .gitignore, dan README ringkas berisi cara menjalankan.",
+      "acceptanceCriteria": [
+        "composer install selesai tanpa error",
+        "php artisan --version menampilkan Laravel 13.x",
+        "php -r \"exit(version_compare(PHP_VERSION,'8.3','>=')?0:1);\" keluar dengan status 0",
+        "Direktori frontend/, container/, deploy/quadlet/, bin/, docs/ ada",
+        ".env.example ada dan tidak memuat satu pun secret asli"
+      ],
+      "priority": 1,
+      "passes": false,
+      "labels": ["foundation"],
+      "dependsOn": []
+    },
+    {
+      "id": "US-002",
+      "title": "Containerfile dev + compose Podman (pgsql, redis, minio)",
+      "description": "Tulis container/Containerfile berbasis docker.io/dunglas/frankenphp:php8.3 dengan ekstensi pcntl, pdo_pgsql, redis, intl, zip, gd, exif, opcache. Tulis compose.yaml berisi service app, horizon, reverb, scheduler, pgsql, redis, minio, createbucket. WAJIB: semua image memakai nama registry lengkap (FQIN) dan service yang bind-mount source memakai userns_mode keep-id.",
+      "acceptanceCriteria": [
+        "podman compose config keluar dengan status 0",
+        "Tidak ada image tanpa prefix registry: rg -n 'image:\\s+(?!docker\\.io|quay\\.io|ghcr\\.io)' compose.yaml tidak menemukan apa pun",
+        "podman compose up -d menjalankan seluruh service tanpa restart loop",
+        "podman compose exec pgsql pg_isready keluar dengan status 0",
+        "podman compose exec redis redis-cli ping mengembalikan PONG"
+      ],
+      "priority": 1,
+      "passes": false,
+      "labels": ["foundation", "infra"],
+      "dependsOn": ["US-001"]
+    },
+    {
+      "id": "US-003",
+      "title": "Octane + FrankenPHP hidup dengan health check",
+      "description": "Pasang laravel/octane, jalankan octane:install --server=frankenphp, dan jalankan service app lewat octane:start di compose. Pastikan endpoint /up bawaan Laravel merespons melalui FrankenPHP.",
+      "acceptanceCriteria": [
+        "config/octane.php ada dan OCTANE_SERVER=frankenphp di .env.example",
+        "curl -fsS http://localhost/up keluar dengan status 0",
+        "podman compose logs app tidak memuat 'bind: permission denied'",
+        "php artisan octane:reload keluar dengan status 0 saat service jalan"
+      ],
+      "priority": 1,
+      "passes": false,
+      "labels": ["foundation", "infra"],
+      "dependsOn": ["US-002"]
+    },
+    {
+      "id": "US-004",
+      "title": "Konfigurasi aman untuk config:cache",
+      "description": "Pindahkan seluruh pembacaan env() ke dalam file config/. Tambahkan test/analisis yang gagal bila ada env() dipanggil di luar config/, karena di worker mode dengan config ter-cache env() mengembalikan null dan bug-nya sulit dilacak.",
+      "acceptanceCriteria": [
+        "rg -n 'env\\(' app/ routes/ database/ tidak menemukan apa pun",
+        "php artisan config:cache lalu curl -fsS http://localhost/up tetap keluar dengan status 0",
+        "Ada satu test yang gagal bila env() ditambahkan di app/"
+      ],
+      "priority": 1,
+      "passes": false,
+      "labels": ["foundation", "octane-safety"],
+      "dependsOn": ["US-003"]
+    },
+    {
+      "id": "US-005",
+      "title": "Postgres + Redis tersambung (cache, session, queue)",
+      "description": "Set DB_CONNECTION=pgsql, CACHE_STORE=redis, SESSION_DRIVER=redis, QUEUE_CONNECTION=redis. Jalankan migrasi bawaan. Buktikan ketiga jalur Redis benar-benar dipakai, bukan sekadar terkonfigurasi.",
+      "acceptanceCriteria": [
+        "php artisan migrate --force keluar dengan status 0",
+        "Test memastikan Cache::put lalu Cache::get mengembalikan nilai yang sama lewat driver redis",
+        "Test memastikan Queue::fake tidak dipakai untuk klaim ini: satu job nyata di-dispatch dan tercatat di Redis",
+        "composer verify hijau"
+      ],
+      "priority": 1,
+      "passes": false,
+      "labels": ["foundation", "data"],
+      "dependsOn": ["US-003"]
+    },
+    {
+      "id": "US-006",
+      "title": "Gerbang kualitas PHP: Pest, Pint, Larastan",
+      "description": "Pasang pestphp/pest, laravel/pint, larastan/larastan (level 6). Tambahkan skrip composer 'verify' yang menjalankan pint --test, larastan, dan pest secara berurutan.",
+      "acceptanceCriteria": [
+        "composer verify ada di composer.json dan keluar dengan status 0",
+        "Menambahkan pelanggaran format membuat composer verify gagal",
+        "phpstan.neon menetapkan level 6 atau lebih tinggi"
+      ],
+      "priority": 1,
+      "passes": false,
+      "labels": ["quality"],
+      "dependsOn": ["US-001"]
+    },
+    {
+      "id": "US-007",
+      "title": "CI: build image + jalankan gerbang kualitas",
+      "description": "Buat workflow GitHub Actions yang membangun image dengan buildah/podman dan menjalankan composer verify serta gerbang frontend pada setiap push dan pull request.",
+      "acceptanceCriteria": [
+        ".github/workflows/ci.yml ada",
+        "Workflow menjalankan composer verify dan npm --prefix frontend run verify",
+        "Workflow gagal bila salah satu gerbang gagal (dibuktikan sekali dengan commit yang sengaja melanggar, lalu dikembalikan)"
+      ],
+      "priority": 2,
+      "passes": false,
+      "labels": ["quality", "ci"],
+      "dependsOn": ["US-006"]
+    },
+    {
+      "id": "US-008",
+      "title": "Sanctum mode cookie/stateful + endpoint auth",
+      "description": "Pasang Sanctum dalam mode cookie/stateful (bukan bearer token). Sediakan POST /login, POST /logout, GET /api/me. Set SANCTUM_STATEFUL_DOMAINS dan SESSION_DOMAIN di .env.example. Jangan aktifkan CORS lebar — SPA berada di origin yang sama.",
+      "acceptanceCriteria": [
+        "Test: GET /api/me tanpa sesi mengembalikan 401",
+        "Test: alur /sanctum/csrf-cookie lalu POST /login lalu GET /api/me mengembalikan 200 beserta data user",
+        "Test: POST /logout membuat GET /api/me berikutnya mengembalikan 401",
+        "rg -n 'HasApiTokens' app/Models/User.php boleh ada, tetapi tidak ada endpoint yang menerbitkan bearer token",
+        "composer verify hijau"
+      ],
+      "priority": 1,
+      "passes": false,
+      "labels": ["auth"],
+      "dependsOn": ["US-005"]
+    },
+    {
+      "id": "US-009",
+      "title": "RBAC spatie/laravel-permission + seeder",
+      "description": "Pasang spatie/laravel-permission. Buat RolePermissionSeeder berisi role contoh (admin, operator, viewer) dan permission bergaya titik (item.view, item.create, item.delete). Daftarkan middleware permission pada route API. Tambahkan satu Policy sebagai pola.",
+      "acceptanceCriteria": [
+        "php artisan migrate:fresh --seed keluar dengan status 0 dan membuat role serta permission",
+        "Test: user tanpa permission menerima 403 pada route yang dilindungi",
+        "Test: user dengan permission menerima 200 pada route yang sama",
+        "Seeder bersifat idempoten: dijalankan dua kali tidak menghasilkan duplikat",
+        "composer verify hijau"
+      ],
+      "priority": 1,
+      "passes": false,
+      "labels": ["auth", "rbac"],
+      "dependsOn": ["US-008"]
+    },
+    {
+      "id": "US-010",
+      "title": "Scaffold SPA Vue 3 + Vuetify 3 + Pinia + Router",
+      "description": "Buat frontend/ dengan Vite, Vue 3, Vuetify 3, Pinia, Vue Router, TypeScript. Set build.outDir ke ../public/build dengan manifest aktif. Tambahkan skrip npm 'verify' berisi eslint, vue-tsc --noEmit, dan vitest run.",
+      "acceptanceCriteria": [
+        "npm --prefix frontend ci keluar dengan status 0",
+        "npm --prefix frontend run build menghasilkan public/build/manifest.json",
+        "npm --prefix frontend run verify keluar dengan status 0"
+      ],
+      "priority": 1,
+      "passes": false,
+      "labels": ["frontend"],
+      "dependsOn": ["US-001"]
+    },
+    {
+      "id": "US-011",
+      "title": "Satu origin: proxy Vite + fallback history Vue Router",
+      "description": "Konfigurasi proxy Vite untuk /api, /sanctum, /broadcasting ke server Laravel. Tambahkan route fallback Laravel agar seluruh path non-API mengembalikan SPA, sehingga refresh di URL dalam tidak menghasilkan 404. Sertakan blok Caddyfile yang setara untuk produksi.",
+      "acceptanceCriteria": [
+        "Test: GET /some/deep/spa/route mengembalikan 200 berisi HTML SPA, bukan 404",
+        "Test: GET /api/route-tidak-ada tetap mengembalikan 404 JSON, tidak jatuh ke fallback SPA",
+        "frontend/vite.config.ts memuat proxy untuk /api, /sanctum, dan /broadcasting",
+        "composer verify hijau"
+      ],
+      "priority": 1,
+      "passes": false,
+      "labels": ["frontend", "routing"],
+      "dependsOn": ["US-010", "US-003"]
+    },
+    {
+      "id": "US-012",
+      "title": "Store auth Pinia + halaman login + guard router",
+      "description": "Buat store Pinia auth (state user, aksi login/logout/fetchMe) yang memanggil endpoint US-008 lewat instance axios dengan withCredentials. Buat halaman login Vuetify dan navigation guard yang mengalihkan pengguna belum masuk.",
+      "acceptanceCriteria": [
+        "Test Vitest: aksi login menyimpan user ke store; logout mengosongkannya",
+        "Test Vitest: guard mengalihkan ke /login saat store kosong",
+        "Instance axios memakai withCredentials true dan memanggil /sanctum/csrf-cookie sebelum login",
+        "npm --prefix frontend run verify keluar dengan status 0"
+      ],
+      "priority": 1,
+      "passes": false,
+      "labels": ["frontend", "auth"],
+      "dependsOn": ["US-011", "US-008"]
+    },
+    {
+      "id": "US-013",
+      "title": "Horizon + dua queue terpisah",
+      "description": "Pasang Laravel Horizon dengan dua supervisor: queue 'default' dan queue 'priority'. Tujuannya agar lonjakan pekerjaan di satu queue tidak menunda queue lain. Amankan dashboard /horizon dengan Gate berbasis permission.",
+      "acceptanceCriteria": [
+        "config/horizon.php mendefinisikan supervisor untuk queue default dan priority",
+        "Test: job yang di-dispatch ke queue priority tercatat pada queue tersebut, bukan default",
+        "Test: user tanpa permission menerima 403 saat mengakses /horizon",
+        "composer verify hijau"
+      ],
+      "priority": 1,
+      "passes": false,
+      "labels": ["queue"],
+      "dependsOn": ["US-009"]
+    },
+    {
+      "id": "US-014",
+      "title": "Reverb + Echo tersambung",
+      "description": "Pasang Laravel Reverb (BROADCAST_CONNECTION=reverb) dan konfigurasi Echo di frontend/src/plugins/echo.ts memakai authEndpoint /broadcasting/auth agar cookie ikut otomatis. Perhatikan pemisahan REVERB_HOST (internal, antar-container) dan VITE_REVERB_HOST (publik, dibaca browser).",
+      "acceptanceCriteria": [
+        "Service reverb hidup dan menerima koneksi WebSocket di port yang dikonfigurasi",
+        "Test: event broadcast tiba di client yang berlangganan channel publik",
+        ".env.example membedakan REVERB_HOST/REVERB_PORT dari VITE_REVERB_HOST/VITE_REVERB_PORT dengan komentar penjelas",
+        "Tidak ada secret Reverb (REVERB_APP_SECRET) yang terbaca dari bundle frontend"
+      ],
+      "priority": 1,
+      "passes": false,
+      "labels": ["realtime"],
+      "dependsOn": ["US-005", "US-010"]
+    },
+    {
+      "id": "US-015",
+      "title": "Channel privat wajib memeriksa permission",
+      "description": "Definisikan channel privat di routes/channels.php yang memeriksa permission lewat spatie, bukan sekadar mencocokkan id user. Ini menutup lubang di mana pengguna tanpa hak tetap bisa berlangganan dan membaca data lewat WebSocket meskipun route API sudah dilindungi.",
+      "acceptanceCriteria": [
+        "Test negatif: user tanpa permission menerima 403 dari POST /broadcasting/auth untuk channel privat",
+        "Test positif: user dengan permission menerima 200 dari endpoint yang sama",
+        "Setiap closure di routes/channels.php memanggil can() atau Policy, bukan hanya membandingkan id",
+        "composer verify hijau"
+      ],
+      "priority": 1,
+      "passes": false,
+      "labels": ["realtime", "security"],
+      "dependsOn": ["US-009", "US-014"]
+    },
+    {
+      "id": "US-016",
+      "title": "Alur penuh: job antre, broadcast, store Pinia ter-update",
+      "description": "Buat job contoh berlabel @demo yang berjalan di queue, menyiarkan event saat selesai, dan diterima listener terpusat di store Pinia. Payload event WAJIB memakai ulang API Resource yang sama dengan endpoint REST, sehingga bentuk data di store hanya satu.",
+      "acceptanceCriteria": [
+        "Test: dispatch job lalu event tersiar ke channel yang benar dengan payload sama persis dengan API Resource",
+        "Test Vitest: listener store menerima payload dan meng-commit ke state tanpa transformasi tambahan",
+        "Listener Echo terdaftar di satu tempat (store), bukan tersebar di komponen",
+        "composer verify dan npm --prefix frontend run verify keduanya hijau"
+      ],
+      "priority": 1,
+      "passes": false,
+      "labels": ["realtime", "queue", "demo"],
+      "dependsOn": ["US-013", "US-014"]
+    },
+    {
+      "id": "US-017",
+      "title": "Storage S3/MinIO dengan presigned upload",
+      "description": "Konfigurasi disk s3 mengarah ke MinIO pada dev. Sediakan endpoint yang menerbitkan presigned URL agar browser mengunggah langsung ke object storage. File besar tidak boleh melewati worker Octane karena akan memblokir worker dan menurunkan throughput.",
+      "acceptanceCriteria": [
+        "Test: endpoint mengembalikan presigned URL yang valid dan hanya untuk user terautentikasi",
+        "Test integrasi: unggah memakai URL tersebut membuat objek benar-benar ada di bucket",
+        "Tidak ada route yang menerima file upload melalui PHP untuk jalur normal",
+        "composer verify hijau"
+      ],
+      "priority": 2,
+      "passes": false,
+      "labels": ["storage"],
+      "dependsOn": ["US-009"]
+    },
+    {
+      "id": "US-018",
+      "title": "Observability dasar",
+      "description": "Set LOG_CHANNEL ke stderr dengan format terstruktur agar log mengalir ke journald. Pastikan endpoint /up mencakup pemeriksaan koneksi database dan Redis. Telescope hanya boleh aktif di environment lokal, tidak di produksi bersama Octane.",
+      "acceptanceCriteria": [
+        "curl -fsS http://localhost/up mengembalikan status komponen db dan redis",
+        "Log aplikasi keluar ke stderr dalam format terstruktur",
+        "Telescope terdaftar hanya bila app environment lokal (dibuktikan dengan test)",
+        "composer verify hijau"
+      ],
+      "priority": 2,
+      "passes": false,
+      "labels": ["ops"],
+      "dependsOn": ["US-013"]
+    },
+    {
+      "id": "US-019",
+      "title": "Pengaman kebocoran state antar-request di Octane",
+      "description": "Tulis docs/OCTANE-RULES.md dan test yang membuktikan tidak ada kebocoran state antar-request pada worker mode: data request atau user tidak boleh menempel di singleton maupun properti statis. Ini penyebab bug paling mahal di worker mode karena data satu pengguna dapat terlihat oleh pengguna lain.",
+      "acceptanceCriteria": [
+        "Ada test yang menjalankan dua request berbeda user berurutan dan memastikan tidak ada data yang menular",
+        "docs/OCTANE-RULES.md memuat daftar larangan beserta alasannya",
+        "Konfigurasi octane memakai --max-requests untuk membatasi kebocoran memori",
+        "composer verify hijau"
+      ],
+      "priority": 1,
+      "passes": false,
+      "labels": ["octane-safety", "security"],
+      "dependsOn": ["US-008"]
+    },
+    {
+      "id": "US-020",
+      "title": "Containerfile produksi multi-stage",
+      "description": "Buat container/Containerfile.prod dua tahap: tahap node membangun SPA, tahap frankenphp menjalankan composer install --no-dev dan seluruh perintah cache artisan. Catat bahwa variabel VITE_* dibakukan saat build, bukan dibaca saat runtime.",
+      "acceptanceCriteria": [
+        "podman build -f container/Containerfile.prod keluar dengan status 0",
+        "Image hasil build memuat public/build dan tidak memuat dependensi dev PHP",
+        "Menjalankan image dan memanggil /up mengembalikan status 0",
+        "README mencatat bahwa perubahan VITE_* mensyaratkan rebuild image"
+      ],
+      "priority": 2,
+      "passes": false,
+      "labels": ["deploy"],
+      "dependsOn": ["US-010", "US-003"]
+    },
+    {
+      "id": "US-021",
+      "title": "Unit Quadlet + skrip provisioning Ubuntu",
+      "description": "Tulis unit .container dan .network di deploy/quadlet/ untuk app, horizon, reverb, scheduler, pgsql, redis, minio. Unit horizon memakai TimeoutStopSec panjang agar job tidak terpotong saat deploy. Skrip provisioning memeriksa versi Podman, membuat user rootless, mengatur subuid/subgid, mengaktifkan linger, dan menyetel ip_unprivileged_port_start.",
+      "acceptanceCriteria": [
+        "systemctl --user daemon-reload lalu start seluruh unit berhasil di VPS uji",
+        "Unit horizon memuat TimeoutStopSec minimal 3600",
+        "loginctl show-user <user> menunjukkan Linger=yes",
+        "VPS di-reboot dan seluruh service naik sendiri tanpa intervensi",
+        "Skrip provisioning berhenti dengan pesan jelas bila podman --version di bawah 4.4"
+      ],
+      "priority": 2,
+      "passes": false,
+      "labels": ["deploy", "infra"],
+      "dependsOn": ["US-020"]
+    },
+    {
+      "id": "US-022",
+      "title": "Runbook deploy, rollback, dan backup",
+      "description": "Tulis bin/deploy dan docs/RUNBOOK.md yang mencakup alur auto-update, migrasi, reload, prosedur rollback ke tag sebelumnya, serta backup. Backup wajib memakai dump logis lewat podman exec, bukan menyalin direktori volume, karena volume rootless memakai pemetaan UID sehingga salinan mentah bisa gagal dipulihkan.",
+      "acceptanceCriteria": [
+        "bin/deploy menjalankan pembaruan image, migrate --force, dan reload secara berurutan dan berhenti bila salah satu gagal",
+        "Rollback ke tag sebelumnya berhasil diuji pada VPS uji",
+        "Skrip backup menghasilkan dump yang terbukti dapat dipulihkan ke database kosong",
+        "docs/RUNBOOK.md memuat langkah verifikasi setelah deploy"
+      ],
+      "priority": 2,
+      "passes": false,
+      "labels": ["deploy", "ops"],
+      "dependsOn": ["US-021"]
+    },
+    {
+      "id": "US-023",
+      "title": "bin/doctor: periksa prasyarat dan bentrok port",
+      "description": "Skrip yang memeriksa versi Podman, keberadaan subuid/subgid, status linger, nilai ip_unprivileged_port_start, dan port yang sudah terpakai di host (80, 443, 5432, 6379, 8080, 9000, 9001, 5173). Tujuannya menangkap masalah lingkungan sebelum compose dijalankan, bukan setelah gagal di tengah jalan.",
+      "acceptanceCriteria": [
+        "bin/doctor keluar dengan status 0 pada mesin yang sehat",
+        "bin/doctor keluar dengan status bukan 0 dan pesan jelas bila sebuah port terpakai",
+        "Skrip berjalan di Linux dan pada WSL untuk pengembangan di Windows",
+        "README menyarankan menjalankan bin/doctor sebagai langkah pertama"
+      ],
+      "priority": 2,
+      "passes": false,
+      "labels": ["dx"],
+      "dependsOn": ["US-002"]
+    },
+    {
+      "id": "US-024",
+      "title": "bin/rename-project + README boilerplate",
+      "description": "Skrip yang mengganti seluruh placeholder nama proyek pada composer.json, package.json, compose.yaml, unit Quadlet, dan .env.example. README menjelaskan cara memakai boilerplate untuk proyek baru dan cara membuang bagian demo.",
+      "acceptanceCriteria": [
+        "Setelah bin/rename-project acme-app dijalankan, rg -n 'laravel13-frankenphp-starter' tidak menemukan apa pun",
+        "composer verify tetap hijau setelah penggantian nama",
+        "podman compose config tetap keluar dengan status 0 setelah penggantian nama",
+        "docs/REMOVE-DEMO.md mendaftar seluruh berkas berlabel @demo"
+      ],
+      "priority": 2,
+      "passes": false,
+      "labels": ["dx"],
+      "dependsOn": ["US-001"]
+    },
+    {
+      "id": "US-025",
+      "title": "Opsional: modul webhook masuk dengan tanda tangan HMAC",
+      "description": "Modul generik untuk menerima webhook dari sistem lain: verifikasi HMAC atas raw body dengan hash_equals dan toleransi timestamp, idempotency berbasis kunci unik, simpan payload mentah lebih dulu lalu proses di queue, balas 202 dengan cepat. Tanpa asumsi domain apa pun.",
+      "acceptanceCriteria": [
+        "Test: tanda tangan salah mengembalikan 401",
+        "Test: timestamp di luar toleransi mengembalikan 401",
+        "Test: payload sama dikirim dua kali hanya menghasilkan satu baris dan tidak mengembalikan error",
+        "Test: permintaan valid dibalas 202 dan pekerjaannya diproses di queue, bukan inline",
+        "Perbandingan tanda tangan memakai hash_equals, bukan operator kesamaan biasa",
+        "composer verify hijau"
+      ],
+      "priority": 3,
+      "passes": false,
+      "labels": ["optional", "integration", "security"],
+      "dependsOn": ["US-009", "US-013"]
+    },
+    {
+      "id": "US-026",
+      "title": "Opsional: vertical demo end-to-end yang mudah dihapus",
+      "description": "Satu resource contoh Item dengan CRUD, halaman Vuetify, dan tombol yang memicu job dari US-016 sehingga seluruh rantai request, queue, broadcast, dan store terbukti tersambung. Seluruh berkas diberi label @demo dan terdaftar agar dapat dibuang tanpa sisa.",
+      "acceptanceCriteria": [
+        "Test end-to-end: menekan aksi demo menghasilkan pembaruan UI melalui broadcast tanpa reload",
+        "Seluruh berkas demo memuat penanda @demo",
+        "Mengikuti docs/REMOVE-DEMO.md membuang seluruh demo dan composer verify tetap hijau",
+        "Setelah demo dibuang, aplikasi tetap dapat dijalankan dan /up tetap sehat"
+      ],
+      "priority": 3,
+      "passes": false,
+      "labels": ["optional", "demo"],
+      "dependsOn": ["US-015", "US-016"]
+    }
+  ],
+  "metadata": {
+    "version": "1.0",
+    "source": "PLAN.md (Ricemill) — stack diambil, ruang lingkup domain dibuang",
+    "criticalPath": ["US-001", "US-002", "US-003", "US-005", "US-008", "US-009", "US-015"]
+  }
+}

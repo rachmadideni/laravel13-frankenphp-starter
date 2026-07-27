@@ -1,0 +1,39 @@
+# ralph-tui — konfigurasi loop agen otonom
+# Verifikasi sekali setelah instalasi:  ralph-tui config validate
+
+agent = "claude"
+tracker = "json"
+
+# Skill project-scoped. Agen Claude Code menemukan .claude/skills/ secara otomatis;
+# baris ini membuat agen lain (opencode, droid) memakai sumber yang sama.
+skills_dir = ".claude/skills"
+
+maxIterations = 0            # 0 = tanpa batas; loop berhenti saat semua story passes = true
+iterationDelay = 1000
+outputDir = ".ralph-tui/iterations"
+progressFile = ".ralph-tui/progress.md"
+
+# Sengaja false. Story di backlog ini menyentuh migrasi DB dan unit systemd —
+# terlalu berisiko untuk di-commit tanpa dilihat manusia.
+autoCommit = false
+
+[trackerOptions]
+# Nama kunci ini belum diverifikasi terhadap versi ralph-tui yang terpasang.
+# Kalau ditolak saat `ralph-tui config validate`, hapus blok ini dan jalankan dengan
+# flag eksplisit:  ralph-tui run --prd ./prd.json
+path = "./prd.json"
+
+[agentOptions]
+model = "claude-opus-5"
+
+[errorHandling]
+# "skip" supaya satu story yang macet tidak menghentikan seluruh backlog —
+# story yang gagal dilewati dan bisa ditinjau manusia belakangan.
+strategy = "skip"
+maxRetries = 2
+retryDelayMs = 5000
+
+[rateLimitHandling]
+enabled = true
+maxRetries = 3
+baseBackoffMs = 5000
