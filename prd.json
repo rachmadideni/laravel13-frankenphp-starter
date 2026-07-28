@@ -409,14 +409,15 @@
         "README mencatat bahwa perubahan VITE_* mensyaratkan rebuild image"
       ],
       "priority": 2,
-      "passes": false,
+      "passes": true,
       "labels": [
         "deploy"
       ],
       "dependsOn": [
         "US-010",
         "US-003"
-      ]
+      ],
+      "completionNotes": "Created container/Containerfile.prod with multi-stage build: Stage 1 builds frontend with Node.js/Vite to public/build; Stage 2 installs PHP dependencies with --no-dev and pre-warms config/route/event caches. Created .dockerignore to exclude dev files and node_modules. Build tested successfully producing image with public/build included. Updated README documenting that VITE_* variables are baked at build time and cannot be changed at runtime—requires rebuild for new values. Added examples for passing custom VITE_* via --build-arg to podman build."
     },
     {
       "id": "US-021",
