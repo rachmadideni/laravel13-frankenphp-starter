@@ -35,7 +35,6 @@ class HealthController extends Controller
         }
 
         $code = $status['status'] === 'up' ? 200 : 503;
-        $message = 'Health' .' check';
 
         return response()->json($status, $code);
     }
