@@ -515,7 +515,7 @@
         "composer verify hijau"
       ],
       "priority": 3,
-      "passes": false,
+      "passes": true,
       "labels": [
         "optional",
         "integration",
@@ -524,7 +524,8 @@
       "dependsOn": [
         "US-009",
         "US-013"
-      ]
+      ],
+      "completionNotes": "Created WebhookController with POST /api/webhook endpoint. HMAC-SHA256 signature verification using hash_equals (timing-attack resistant). Timestamp validation (5-minute tolerance). Idempotency via unique keys stored in database. Returns 202 immediately, queues ProcessWebhookPayload job for async handling. WebhookPayload model stores raw payloads with status tracking (pending/processed/failed). Config/webhooks.php for per-source secret management. Database migration for webhook_payloads table. Tests: invalid signature (401), timestamp outside tolerance (401), duplicate payload (same idempotency key = single processing), valid webhook returns 202 with queued job. All 6 tests pass. Comprehensive docs/WEBHOOKS.md with setup, examples (cURL/Python/JS), extending for source-specific handlers, security best practices."
     },
     {
       "id": "US-026",
