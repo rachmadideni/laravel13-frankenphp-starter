@@ -1,0 +1,171 @@
+#!/bin/bash
+# Rename project from boilerplate
+# Usage: ./bin/rename-project NEW_PROJECT_NAME
+#
+# Replaces 'laravel13-frankenphp-starter' with new name in:
+# - composer.json (name field)
+# - package.json (name field)
+# - .env.example (APP_NAME)
+# - compose.yaml (service names, container names, volumes)
+# - Quadlet units (container names)
+
+set -e
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+NEW_NAME="$1"
+
+if [ -z "$NEW_NAME" ]; then
+    echo "Usage: $0 NEW_PROJECT_NAME"
+    echo ""
+    echo "Example:"
+    echo "  $0 acme-app"
+    echo ""
+    echo "This will replace 'laravel13-frankenphp-starter' with 'acme-app' in:"
+    echo "  - composer.json"
+    echo "  - package.json"
+    echo "  - .env.example"
+    echo "  - compose.yaml"
+    echo "  - Quadlet units (deploy/quadlet/*.container)"
+    exit 1
+fi
+
+# Validate project name (lowercase, hyphens, alphanumeric only)
+if ! [[ "$NEW_NAME" =~ ^[a-z0-9]([-]?[a-z0-9])*$ ]]; then
+    echo -e "${RED}✗${NC} Invalid project name: $NEW_NAME"
+    echo "   Use lowercase letters, numbers, and hyphens only"
+    echo "   Examples: acme-app, my-project, app123"
+    exit 1
+fi
+
+OLD_NAME="laravel13-frankenphp-starter"
+
+echo "Project Rename"
+echo "=============="
+echo "Old name: $OLD_NAME"
+echo "New name: $NEW_NAME"
+echo ""
+
+# Check if old name exists
+found=0
+grep -r "$OLD_NAME" \
+    composer.json \
+    package.json \
+    .env.example \
+    compose.yaml \
+    deploy/quadlet/*.container \
+    2>/dev/null | grep -v ".git" || true
+
+echo ""
+echo "Files will be updated:"
+echo "  - composer.json"
+echo "  - package.json"
+echo "  - .env.example"
+echo "  - compose.yaml"
+echo "  - deploy/quadlet/*.container"
+echo ""
+
+read -p "Proceed with rename? (y/N) " -n 1 -r
+echo
+if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    echo "Rename cancelled"
+    exit 0
+fi
+echo ""
+
+# Function to rename in file
+rename_in_file() {
+    local file=$1
+    if [ -f "$file" ]; then
+        sed -i "s/$OLD_NAME/$NEW_NAME/g" "$file"
+        echo -e "${GREEN}✓${NC} Updated: $file"
+    fi
+}
+
+# Perform replacements
+echo "Step 1: Updating files..."
+rename_in_file "composer.json"
+rename_in_file "package.json"
+rename_in_file ".env.example"
+rename_in_file "compose.yaml"
+
+# Update Quadlet units
+for unit in deploy/quadlet/*.container; do
+    rename_in_file "$unit"
+done
+echo ""
+
+# Verify composer.json is valid
+echo "Step 2: Verifying composer.json..."
+if php -r "json_decode(file_get_contents('composer.json'), true); echo 'OK';" 2>/dev/null | grep -q OK; then
+    echo -e "${GREEN}✓${NC} composer.json is valid"
+else
+    echo -e "${RED}✗${NC} composer.json syntax error"
+    exit 1
+fi
+echo ""
+
+# Verify package.json is valid
+echo "Step 3: Verifying package.json..."
+if php -r "json_decode(file_get_contents('package.json'), true); echo 'OK';" 2>/dev/null | grep -q OK; then
+    echo -e "${GREEN}✓${NC} package.json is valid"
+else
+    echo -e "${RED}✗${NC} package.json syntax error"
+    exit 1
+fi
+echo ""
+
+# Verify no old name remains
+echo "Step 4: Verifying no old name remains..."
+remaining=$(grep -r "$OLD_NAME" \
+    composer.json \
+    package.json \
+    .env.example \
+    compose.yaml \
+    deploy/quadlet/*.container \
+    2>/dev/null | grep -v ".git" | wc -l || true)
+
+if [ "$remaining" -eq 0 ]; then
+    echo -e "${GREEN}✓${NC} No references to '$OLD_NAME' remain"
+else
+    echo -e "${YELLOW}⚠${NC} Warning: $remaining references to '$OLD_NAME' still found"
+    grep -n "$OLD_NAME" \
+        composer.json \
+        package.json \
+        .env.example \
+        compose.yaml \
+        deploy/quadlet/*.container \
+        2>/dev/null | grep -v ".git" || true
+fi
+echo ""
+
+# Verify compose config is valid
+echo "Step 5: Verifying compose configuration..."
+if podman compose config > /dev/null 2>&1; then
+    echo -e "${GREEN}✓${NC} compose.yaml is valid"
+else
+    echo -e "${RED}✗${NC} compose.yaml validation failed"
+    echo "   Run: podman compose config"
+    exit 1
+fi
+echo ""
+
+# Summary
+echo "=============="
+echo -e "${GREEN}Rename successful!${NC}"
+echo ""
+echo "Project renamed from: $OLD_NAME"
+echo "Project renamed to:   $NEW_NAME"
+echo ""
+echo "Next steps:"
+echo "  1. Commit changes: git add -A && git commit -m 'chore: rename project to $NEW_NAME'"
+echo "  2. Update git remote if needed"
+echo "  3. Rebuild containers: podman compose build"
+echo "  4. Restart services: podman compose up -d"
+echo ""
+echo "To remove demo files (if any):"
+echo "  Review docs/REMOVE-DEMO.md and remove marked @demo files"
+echo ""

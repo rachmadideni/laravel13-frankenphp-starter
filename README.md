@@ -36,6 +36,128 @@ Bedakan dulu, karena perintahnya berbeda:
 
 ---
 
+## Pakai Boilerplate untuk Aplikasi Baru
+
+### Langkah 1: Clone Repository
+
+```bash
+git clone https://github.com/rachmadideni/laravel13-frankenphp-starter.git acme-app
+cd acme-app
+```
+
+### Langkah 2: Rename Proyek
+
+```bash
+./bin/rename-project acme-app
+```
+
+Skrip ini:
+- Mengganti nama di `composer.json`, `package.json`, `.env.example`
+- Mengganti nama container di `compose.yaml` dan Quadlet units
+- Verifikasi `composer.json` dan `compose.yaml` tetap valid
+- Memastikan tidak ada referensi nama lama yang tertinggal
+
+### Langkah 3: Hapus Demo Files (Opsional)
+
+Boilerplate berisi vertical demo penuh (Job → Event → Store). Untuk proyek baru, hapus:
+
+```bash
+# Review file demo:
+cat docs/REMOVE-DEMO.md
+
+# Hapus model, job, event, store, migration, factory, tests demo:
+rm app/Models/Item.php
+rm app/Events/ItemDemoCompleted.php
+rm app/Jobs/ItemDemoJob.php
+rm app/Policies/ItemPolicy.php
+rm app/Http/Resources/ItemResource.php
+rm database/migrations/2026_07_28_000000_create_items_table.php
+rm database/factories/ItemFactory.php
+rm tests/Feature/ItemDemoFlowTest.php
+rm frontend/src/stores/items.ts frontend/src/stores/items.spec.ts
+```
+
+Atau ikuti checklist di `docs/REMOVE-DEMO.md`.
+
+### Langkah 4: Buat Domain Model Pertama
+
+Contoh: membuat resource Task untuk aplikasi task management:
+
+```bash
+# Model
+php artisan make:model Task -m
+
+# Resource
+php artisan make:resource TaskResource
+
+# Controller
+php artisan make:controller TaskController
+
+# Factory
+php artisan make:factory TaskFactory
+
+# Tests
+php artisan make:test Feature/TaskTest
+```
+
+Update `database/seeders/RolePermissionSeeder.php` untuk permissions domain:
+
+```php
+Permission::create(['name' => 'tasks.view']);
+Permission::create(['name' => 'tasks.create']);
+Permission::create(['name' => 'tasks.update']);
+Permission::create(['name' => 'tasks.delete']);
+```
+
+### Langkah 5: Verifikasi dan Commit
+
+```bash
+# Backend quality gates
+composer verify
+
+# Frontend quality gates
+npm --prefix frontend run verify
+
+# Dev run
+podman compose up -d
+podman compose exec app php artisan migrate --seed
+curl http://localhost/up
+
+# Commit
+git add -A
+git commit -m "chore: rename to acme-app and remove demo"
+git remote set-url origin https://github.com/YOURORG/acme-app.git
+git push -u origin main
+```
+
+### Langkah 6: Buat Backlog PRD Aplikasi
+
+Jika menggunakan `ralph-tui` untuk automasi:
+
+```bash
+# Buat prd.json baru untuk domain aplikasi Anda
+cat > prd-acme.json <<EOF
+{
+  "name": "acme-app",
+  "description": "Task management application",
+  "branchName": "feat/initial",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Task CRUD",
+      "description": "...",
+      ...
+    }
+  ]
+}
+EOF
+
+# Jalankan automation
+ralph-tui run --prd ./prd-acme.json
+```
+
+---
+
 ## Menjalankan aplikasi (tanpa container)
 
 Prasyarat: PHP >= 8.3 dan Composer. Untuk SPA nanti juga Node >= 20.
