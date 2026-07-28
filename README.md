@@ -63,6 +63,17 @@ pengembang memakai PHP 8.4. Jangan hapus pin itu tanpa menaikkan `require.php` s
 
 ## Menjalankan dengan Podman (dev)
 
+**Langkah pertama: periksa lingkungan**
+
+```bash
+./bin/doctor                  # periksa prasyarat Podman, port, subuid, dll
+```
+
+Skrip akan melaporkan masalah lingkungan yang mencegah compose berjalan. Perbaiki semua
+yang ditandai `✗` sebelum lanjut.
+
+**Jalankan aplikasi:**
+
 ```bash
 podman compose up -d
 podman compose exec app php artisan migrate --seed

@@ -1,0 +1,161 @@
+#!/bin/bash
+# Environment health check for Podman rootless setup
+# Verifies prerequisites before running compose up
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+PASSED=0
+FAILED=0
+WARNINGS=0
+
+check() {
+    local name=$1
+    local cmd=$2
+    local expect=$3  # "pass" or "warn"
+
+    if eval "$cmd" > /dev/null 2>&1; then
+        echo -e "${GREEN}✓${NC} $name"
+        ((PASSED++))
+    else
+        if [ "$expect" = "warn" ]; then
+            echo -e "${YELLOW}⚠${NC} $name"
+            ((WARNINGS++))
+        else
+            echo -e "${RED}✗${NC} $name"
+            ((FAILED++))
+        fi
+    fi
+}
+
+echo "Doctor: environment health check"
+echo "=================================="
+echo ""
+
+# 1. Podman version >= 4.4
+echo "Checking Podman..."
+if command -v podman &> /dev/null; then
+    version=$(podman --version | sed 's/.*[^0-9]\([0-9]*\.[0-9]*\).*/\1/')
+    major=$(echo "$version" | cut -d. -f1)
+    minor=$(echo "$version" | cut -d. -f2)
+
+    if [ "$major" -gt 4 ] || ([ "$major" -eq 4 ] && [ "$minor" -ge 4 ]); then
+        echo -e "${GREEN}✓${NC} Podman version >= 4.4 ($version)"
+        ((PASSED++))
+    else
+        echo -e "${RED}✗${NC} Podman version must be >= 4.4 (found $version)"
+        ((FAILED++))
+    fi
+else
+    echo -e "${RED}✗${NC} Podman not installed"
+    ((FAILED++))
+fi
+echo ""
+
+# 2. Check subuid/subgid
+echo "Checking rootless user delegation..."
+if grep -q "^$(id -un):" /etc/subuid 2>/dev/null; then
+    subuid_range=$(grep "^$(id -un):" /etc/subuid)
+    echo -e "${GREEN}✓${NC} subuid configured: $subuid_range"
+    ((PASSED++))
+else
+    echo -e "${RED}✗${NC} subuid not found for user $(id -un) in /etc/subuid"
+    echo "     Fix: sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 $(id -un)"
+    ((FAILED++))
+fi
+
+if grep -q "^$(id -un):" /etc/subgid 2>/dev/null; then
+    echo -e "${GREEN}✓${NC} subgid configured"
+    ((PASSED++))
+else
+    echo -e "${RED}✗${NC} subgid not found for user $(id -un) in /etc/subgid"
+    ((FAILED++))
+fi
+echo ""
+
+# 3. Check linger (loginctl show-user)
+echo "Checking user linger status..."
+if command -v loginctl &> /dev/null; then
+    if loginctl show-user $(id -un) -p Linger | grep -q "Linger=yes"; then
+        echo -e "${GREEN}✓${NC} Linger enabled (user services survive logout)"
+        ((PASSED++))
+    else
+        echo -e "${YELLOW}⚠${NC} Linger disabled (services stop on logout)"
+        echo "     Fix: loginctl enable-linger $(id -un)"
+        ((WARNINGS++))
+    fi
+else
+    echo -e "${YELLOW}⚠${NC} loginctl not available (systemd-logind might not be running)"
+    ((WARNINGS++))
+fi
+echo ""
+
+# 4. Check ip_unprivileged_port_start (Linux only, not needed in WSL2)
+echo "Checking unprivileged port binding..."
+if [ -f /proc/sys/net/ipv4/ip_unprivileged_port_start ]; then
+    port_start=$(cat /proc/sys/net/ipv4/ip_unprivileged_port_start)
+    if [ "$port_start" -le 80 ]; then
+        echo -e "${GREEN}✓${NC} ip_unprivileged_port_start = $port_start (can bind port 80)"
+        ((PASSED++))
+    else
+        echo -e "${RED}✗${NC} ip_unprivileged_port_start = $port_start (must be <= 80)"
+        echo "     Fix: sudo sysctl net.ipv4.ip_unprivileged_port_start=80"
+        ((FAILED++))
+    fi
+else
+    # Not a real Linux (might be macOS or in WSL but not exposed)
+    echo -e "${YELLOW}⚠${NC} ip_unprivileged_port_start not accessible (might be WSL2, skip)"
+    ((WARNINGS++))
+fi
+echo ""
+
+# 5. Check port availability
+echo "Checking port availability..."
+PORTS=(80 443 5432 6379 8080 9000 9001 5173)
+PORTS_IN_USE=()
+
+for port in "${PORTS[@]}"; do
+    if command -v ss &> /dev/null; then
+        if ss -tuln 2>/dev/null | grep -q ":$port "; then
+            PORTS_IN_USE+=($port)
+            echo -e "${RED}✗${NC} Port $port is in use"
+            ((FAILED++))
+        fi
+    elif command -v netstat &> /dev/null; then
+        if netstat -tuln 2>/dev/null | grep -q ":$port "; then
+            PORTS_IN_USE+=($port)
+            echo -e "${RED}✗${NC} Port $port is in use"
+            ((FAILED++))
+        fi
+    elif command -v lsof &> /dev/null; then
+        if lsof -i :$port &> /dev/null; then
+            PORTS_IN_USE+=($port)
+            echo -e "${RED}✗${NC} Port $port is in use"
+            ((FAILED++))
+        fi
+    else
+        echo -e "${YELLOW}⚠${NC} Port $port — cannot check (no ss/netstat/lsof)"
+        ((WARNINGS++))
+    fi
+done
+
+if [ ${#PORTS_IN_USE[@]} -eq 0 ]; then
+    echo -e "${GREEN}✓${NC} All required ports available (80, 443, 5432, 6379, 8080, 9000-9001, 5173)"
+    ((PASSED++))
+fi
+echo ""
+
+# Summary
+echo "=================================="
+echo -e "Passed: ${GREEN}$PASSED${NC} | Warnings: ${YELLOW}$WARNINGS${NC} | Failed: ${RED}$FAILED${NC}"
+echo ""
+
+if [ $FAILED -eq 0 ]; then
+    echo -e "${GREEN}All checks passed!${NC} Ready to run 'podman compose up -d'"
+    exit 0
+else
+    echo -e "${RED}Fix the issues above before running compose.${NC}"
+    exit 1
+fi
