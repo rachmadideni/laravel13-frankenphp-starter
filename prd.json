@@ -431,14 +431,15 @@
         "Skrip provisioning berhenti dengan pesan jelas bila podman --version di bawah 4.4"
       ],
       "priority": 2,
-      "passes": false,
+      "passes": true,
       "labels": [
         "deploy",
         "infra"
       ],
       "dependsOn": [
         "US-020"
-      ]
+      ],
+      "completionNotes": "Created 8 Quadlet units in deploy/quadlet/: app.network (bridge), pgsql.container (port 5432, persistent), redis.container (port 6379), minio.container (ports 9000-9001), app.container (port 80 with health check), horizon.container (TimeoutStopSec=3600 for graceful job shutdown), reverb.container (port 8080), scheduler.container. Created bin/provision-vps script checks Podman >= 4.4 (exits 1 if below), creates/configures rootless user, configures subuid/subgid (100000-165535), enables loginctl linger, sets ip_unprivileged_port_start=80, creates app directories. Added deploy/quadlet/README.md with setup guide, unit descriptions, storage strategy, debugging tips."
     },
     {
       "id": "US-022",
