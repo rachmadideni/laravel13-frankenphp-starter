@@ -538,7 +538,7 @@
         "Setelah demo dibuang, aplikasi tetap dapat dijalankan dan /up tetap sehat"
       ],
       "priority": 3,
-      "passes": false,
+      "passes": true,
       "labels": [
         "optional",
         "demo"
@@ -546,7 +546,8 @@
       "dependsOn": [
         "US-015",
         "US-016"
-      ]
+      ],
+      "completionNotes": "Created ItemDemoController with GET /api/items (list) and POST /api/items/demo (queue job) endpoints. Created ItemsDemo.vue component showing items from Pinia store with button to trigger demo (no manual refresh needed - updates via broadcast). Created Demo.vue page explaining 6-step full-stack flow with embedded ItemsDemo component and collapsible architecture details. Added /demo route to router. Created ItemDemoEndpointTest with 5 tests covering auth, job queueing, endpoint responses. All @demo files marked. Updated docs/REMOVE-DEMO.md with controller, component, page, test files and cleanup instructions. Full end-to-end flow: click button → POST /api/items/demo (202) → ItemDemoJob queues → Horizon processes → broadcasts event → Echo listener updates Pinia store → Vue re-renders (no reload)."
     }
   ],
   "metadata": {
