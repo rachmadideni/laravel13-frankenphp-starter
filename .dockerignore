@@ -1,0 +1,37 @@
+# Development files not needed in production
+.git
+.github
+.gitignore
+.gitattributes
+.env
+.env.example
+.env.testing
+.editorconfig
+README.md
+PLAN.md
+prd.json
+docs/
+bin/
+deploy/
+.ralph-tui/
+
+# Node development
+frontend/node_modules
+frontend/.turbo
+frontend/dist
+
+# PHP development
+vendor/
+.php-cs-fixer.cache
+phpstan.neon
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build artifacts
+bootstrap/cache/*
+storage/logs/*
+storage/cache/*

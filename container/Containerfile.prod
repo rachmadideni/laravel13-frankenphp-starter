@@ -1,0 +1,68 @@
+# Multi-stage production build
+# Stage 1: Build frontend with Node.js
+FROM docker.io/library/node:20-alpine AS frontend-builder
+
+WORKDIR /app
+
+COPY frontend/package*.json ./frontend/
+
+RUN npm --prefix frontend ci
+
+COPY frontend ./frontend
+
+# Build with Vite. VITE_* variables are baked into the bundle at build time,
+# not read at runtime, so they must be provided during this stage.
+RUN npm --prefix frontend run build
+
+# Stage 2: Final FrankenPHP image with production dependencies
+FROM docker.io/dunglas/frankenphp:php8.3
+
+# Install production extensions
+RUN install-php-extensions \
+        pcntl \
+        pdo_pgsql \
+        redis \
+        intl \
+        zip \
+        gd \
+        exif \
+        opcache
+
+# Production only: no git/unzip/psql client — reduces image size
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=docker.io/library/composer:2 /usr/bin/composer /usr/bin/composer
+
+COPY container/php/php.ini /usr/local/etc/php/conf.d/zz-app.ini
+COPY container/php/worker-entrypoint.sh /usr/local/bin/worker-entrypoint
+RUN chmod +x /usr/local/bin/worker-entrypoint
+
+# Rootless user setup (same as dev image)
+RUN groupadd --gid 1000 app \
+    && useradd --uid 1000 --gid 1000 --create-home --shell /bin/bash app \
+    && mkdir -p /data/caddy /config/caddy \
+    && chown -R app:app /data /config /app
+
+ENV XDG_DATA_HOME=/data \
+    XDG_CONFIG_HOME=/config \
+    COMPOSER_HOME=/tmp/composer
+
+WORKDIR /app
+
+# Copy application code (excludes node_modules and dev files via .dockerignore)
+COPY --chown=app:app . .
+
+# Copy built frontend from builder stage (replaces the frontend src with built output)
+COPY --chown=app:app --from=frontend-builder /app/public/build /app/public/build
+
+USER app
+
+# Install production dependencies (no dev)
+RUN composer install --no-dev --no-interaction --optimize-autoloader
+
+# Pre-warm caches for production (config, routes, views, events)
+RUN php artisan config:cache \
+    && php artisan route:cache \
+    && php artisan event:cache

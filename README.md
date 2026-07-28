@@ -36,6 +36,194 @@ Bedakan dulu, karena perintahnya berbeda:
 
 ---
 
+## Menjalankan aplikasi (tanpa container)
+
+Prasyarat: PHP >= 8.3 dan Composer. Untuk SPA nanti juga Node >= 20.
+
+```bash
+composer install
+cp .env.example .env          # PowerShell: Copy-Item .env.example .env
+php artisan key:generate
+php artisan --version         # harus Laravel 13.x
+php artisan serve             # http://127.0.0.1:8000
+```
+
+`.env.example` sudah menunjuk ke Postgres dan Redis dengan nama host compose (`pgsql`, `redis`),
+jadi jalur di atas hanya cocok untuk halaman yang tidak menyentuh DB/cache. Untuk pemakaian
+sehari-hari pakai Podman (bagian berikutnya); kalau memang mau jalan di host, ganti `DB_HOST` dan
+`REDIS_HOST` menjadi `127.0.0.1` karena port keduanya sudah dipublikasikan compose.
+
+`composer.json` mengunci `config.platform.php = "8.3.0"` supaya resolusi dependensi selalu memakai
+versi yang jalan di PHP 8.3 (Symfony 7.4, bukan 8.1 yang menuntut PHP >= 8.4.1) meskipun mesin
+pengembang memakai PHP 8.4. Jangan hapus pin itu tanpa menaikkan `require.php` sekaligus.
+
+`.env` tidak pernah ikut ter-commit; `.env.example` hanya berisi placeholder, tidak ada secret asli.
+
+---
+
+## Menjalankan dengan Podman (dev)
+
+```bash
+podman compose up -d
+podman compose exec app php artisan migrate --seed
+podman compose logs -f app
+podman compose down            # tambah -v untuk ikut menghapus volume data
+```
+
+Service yang naik: `app` (Octane + FrankenPHP, port 80), `horizon`, `reverb` (8080), `scheduler`,
+`pgsql` (5432), `redis` (6379), `minio` (9000 API / 9001 konsol), dan `createbucket` — one-shot
+yang membuat bucket dev lalu keluar dengan status 0. Container `createbucket` berstatus
+`Exited (0)` itu normal, bukan kegagalan.
+
+Tiga hal yang menentukan compose ini jalan atau tidak:
+
+- **UID host.** `app`, `horizon`, `reverb`, dan `scheduler` bind-mount source repo dan memakai
+  `userns_mode: keep-id`. Kalau UID host bukan 1000, tulis dulu ke `.env` supaya file yang
+  ditulis container tetap milik pengguna host:
+  ```bash
+  echo "HOST_UID=$(id -u)" >> .env
+  echo "HOST_GID=$(id -g)" >> .env
+  ```
+- **Port 80.** Rootless Podman menolak bind port < 1024 sampai
+  `net.ipv4.ip_unprivileged_port_start=80` dipasang (lihat skill `podman-quadlet-ops`).
+- **Lokasi repo di Windows.** Taruh repo di dalam WSL2. `podman machine` hanya mem-mount
+  `%USERPROFILE%`, jadi bind mount dari drive lain bisa gagal tanpa pesan yang jelas.
+
+`horizon` dan `reverb` memakai `container/php/worker-entrypoint.sh`: entrypoint menunggu sampai
+perintah artisan-nya benar-benar ada (paketnya baru dipasang di US-013 dan US-014) lalu `exec`
+supaya SIGTERM diteruskan ke proses PHP. Tanpa penjaga itu container keluar dengan status bukan
+nol dan Podman memasukkannya ke restart loop, sehingga `podman compose up -d` terlihat rusak
+padahal komposisinya benar.
+
+Semua image di `compose.yaml` **wajib** memakai nama registry lengkap (`docker.io/...`). Short
+name memicu prompt pemilihan registry yang tidak terlihat pada `up -d`, dan perintahnya hanya
+tampak menggantung.
+
+## Membangun image produksi
+
+```bash
+podman build -f container/Containerfile.prod -t myapp:latest .
+```
+
+Image produksi adalah multi-stage:
+- **Stage 1 (frontend-builder):** Node 20, membangun SPA dengan Vite ke `public/build`
+- **Stage 2 (akhir):** FrankenPHP minimal, composer install `--no-dev`, cache pre-warmed
+
+**Penting: variabel `VITE_*` dibakukan saat build, bukan dibaca saat runtime.**
+
+Jadi kalau perlu mengubah `VITE_REVERB_HOST` atau variable frontend lainnya, harus rebuild image.
+Untuk lingkungan yang berbeda (dev/staging/prod), buat image terpisah atau sediakan nilai yang
+fleksibel di Vite config:
+
+```bash
+# Contoh: set VITE_* saat build
+podman build \
+  --build-arg VITE_REVERB_HOST=reverb.example.com \
+  --build-arg VITE_REVERB_PORT=443 \
+  -f container/Containerfile.prod -t myapp:prod .
+```
+
+Agar arg `VITE_*` terpakai, tambahkan `ARG` di Containerfile.prod sebelum npm build:
+
+```dockerfile
+ARG VITE_REVERB_HOST
+ARG VITE_REVERB_PORT
+```
+
+Lalu passing saat build-push (CI workflow atau deploy manual).
+
+### Octane + FrankenPHP
+
+Service `app` menjalankan `php artisan octane:start --server=frankenphp --host=0.0.0.0 --port=80
+--admin-port=2019 --max-requests=500`. Health check container memanggil `/up` bawaan Laravel, jadi
+`podman compose up -d` baru menandai `app` sehat setelah aplikasi benar-benar merespons:
+
+```bash
+curl -fsS http://localhost/up
+```
+
+- `OCTANE_SERVER=frankenphp` **wajib** ada di `.env`. Default di `config/octane.php` adalah
+  `roadrunner`; tanpa variabel itu perintah lain (`octane:reload`, `octane:status`) memeriksa
+  server yang salah.
+- `--admin-port` harus disebut eksplisit. Octane menghitungnya `2019 + (port - 8000)`, yang untuk
+  port 80 bernilai negatif dan menggagalkan start dengan "Unable to determine admin port".
+- Bind port 80 sebagai UID 1000 aman karena binary `/usr/local/bin/frankenphp` di image punya
+  `cap_net_bind_service`. Kalau muncul `bind: permission denied`, yang bermasalah adalah sisi
+  host (`net.ipv4.ip_unprivileged_port_start`), bukan container.
+- **Kode tidak di-reload otomatis.** Aplikasi boot sekali per worker, jadi setelah mengubah kode
+  PHP jalankan:
+  ```bash
+  podman compose exec app php artisan octane:reload
+  ```
+  Aturan keamanan state antar-request ada di skill `octane-worker-safety`.
+
+### Postgres + Redis
+
+Satu database (Postgres) dan tiga jalur Redis:
+
+| Variabel | Nilai | Dipakai untuk |
+|---|---|---|
+| `DB_CONNECTION` | `pgsql` | seluruh data aplikasi |
+| `CACHE_STORE` | `redis` | `Cache::` (koneksi Redis `cache`, DB 1) |
+| `SESSION_DRIVER` | `redis` | session pengguna (koneksi Redis `default`, DB 0) |
+| `QUEUE_CONNECTION` | `redis` | job & Horizon (koneksi Redis `default`, DB 0) |
+
+Nilainya ada di `.env.example` **dan** disebut ulang di blok `environment` `compose.yaml`, supaya
+container tidak ikut salah kalau `.env` di host masih memakai nilai lama.
+
+```bash
+podman compose exec app php artisan migrate --force
+```
+
+Migrasi bawaan `create_cache_table` dan `create_jobs_table` sengaja dipertahankan: keduanya
+menyediakan jalur mundur ke driver `database` kalau Redis sedang dimatikan untuk debugging.
+
+Terkonfigurasi tidak sama dengan terpakai, jadi `tests/Feature/RedisBackedServicesTest.php`
+membuktikan ketiganya menyentuh Redis sungguhan:
+
+```bash
+podman exec ajb-ricemill-app-1 vendor/bin/phpunit --filter RedisBackedServices
+```
+
+Test itu **tidak memakai `Queue::fake()`** — fake hanya mencatat dispatch di memori dan tetap
+hijau walaupun Redis mati. Yang dilakukan: `pushOn()` job nyata, membaca `LLEN queues:<nama>`
+langsung lewat facade `Redis`, `pop()` payload-nya kembali, lalu `fire()`. `phpunit.xml` memaksa
+`CACHE_STORE=array` dan `QUEUE_CONNECTION=sync` supaya test lain cepat, jadi test ini menyebut
+`Cache::store('redis')`, `Session::driver('redis')`, dan `Queue::connection('redis')` eksplisit.
+
+### `env()` hanya boleh dipanggil dari `config/`
+
+Produksi menjalankan `php artisan config:cache`. Setelah config ter-cache, Laravel **tidak memuat
+`.env` sama sekali**, sehingga `env()` di luar `config/` mengembalikan `null` — tanpa error, tanpa
+log. Di Octane efeknya lebih halus lagi: nilai yang terbaca saat boot worker pertama dibekukan
+untuk seluruh request berikutnya.
+
+Aturannya: baca env di `config/*.php`, konsumsi lewat `config('...')` di tempat lain.
+
+```php
+// config/ricemill.php
+return ['timbangan_url' => env('TIMBANGAN_URL')];
+
+// app/Services/Timbangan.php
+config('ricemill.timbangan_url');   // bukan env('TIMBANGAN_URL')
+```
+
+`tests/Unit/NoEnvOutsideConfigTest.php` memindai `app/`, `routes/`, dan `database/` lalu gagal
+dengan daftar `berkas:baris` begitu ada `env(` baru. Regexnya sengaja mengabaikan `getenv()`,
+`$this->env()`, dan `Foo::env()`.
+
+```bash
+podman compose exec app vendor/bin/phpunit --filter NoEnvOutsideConfig
+```
+
+---
+
+Struktur direktori mengikuti [PRD §7](PRD.md#7-struktur-repo): `frontend/` (Vue 3, build ke
+`public/build`), `container/` (Containerfile, Caddyfile, `php/octane.ini`), `deploy/quadlet/`
+(unit systemd), `bin/` (doctor, rename-project, deploy), `docs/` (runbook & aturan Octane).
+
+---
+
 ## Agent skills
 
 ### Project-scoped (ikut di repo, tidak perlu instalasi)
@@ -272,7 +460,7 @@ Factory Droid, Cursor CLI, Gemini CLI, Codex, dan Kiro CLI.
 ```bash
 bin/doctor                                # prasyarat & bentrok port (US-023)
 podman compose up -d
-composer verify                           # pint + larastan + pest
+composer verify                           # pint --test + seluruh test suite
 npm --prefix frontend run verify          # eslint + vue-tsc + vitest
 ```
 
