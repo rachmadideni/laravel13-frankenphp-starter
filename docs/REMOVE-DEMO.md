@@ -19,12 +19,16 @@ All files below are marked with `@demo` comment and can be safely deleted:
 - `app/Jobs/ItemDemoJob.php` — Queue job that broadcasts on completion
 - `app/Events/ItemDemoCompleted.php` — Broadcast event
 
+**Controllers:**
+- `app/Http/Controllers/ItemDemoController.php` — Endpoints for /api/items and /api/items/demo
+
 **Database:**
 - `database/migrations/2026_07_28_000000_create_items_table.php` — Items table
 - `database/factories/ItemFactory.php` — Test data factory
 
 **Tests:**
 - `tests/Feature/ItemDemoFlowTest.php` — Tests for job → broadcast → store flow
+- `tests/Feature/ItemDemoEndpointTest.php` — Tests for demo endpoint (GET /api/items, POST /api/items/demo)
 
 ### Frontend
 
@@ -32,11 +36,23 @@ All files below are marked with `@demo` comment and can be safely deleted:
 - `frontend/src/stores/items.ts` — Pinia store with Echo listener
 - `frontend/src/stores/items.spec.ts` — Store tests
 
+**Components:**
+- `frontend/src/components/ItemsDemo.vue` — Component displaying items list with demo button
+
+**Pages:**
+- `frontend/src/pages/Demo.vue` — Page showcasing full stack integration
+
+**Router:**
+- Edit `frontend/src/router/index.ts`: Remove the `import DemoView from '../pages/Demo.vue'` line and the `/demo` route
+
 ### Routes & Controllers
 
-Demo endpoints (if added):
-- Check `routes/api.php` for any `/items` routes — remove them
-- Check `routes/channels.php` for any `items.*` channels — remove them
+**routes/api.php:**
+- Remove lines for demo routes: `GET /api/items`, `POST /api/items/demo`
+- Remove import: `use App\Http\Controllers\ItemDemoController;`
+
+**routes/channels.php:**
+- Check for `items.*` channels — may have been added for demo — remove them
 
 ### Seeding
 
@@ -53,6 +69,7 @@ Demo endpoints (if added):
 rm app/Models/Item.php
 rm app/Http/Resources/ItemResource.php
 rm app/Policies/ItemPolicy.php
+rm app/Http/Controllers/ItemDemoController.php
 rm app/Jobs/ItemDemoJob.php
 rm app/Events/ItemDemoCompleted.php
 
@@ -62,8 +79,11 @@ rm database/factories/ItemFactory.php
 
 # Tests
 rm tests/Feature/ItemDemoFlowTest.php
+rm tests/Feature/ItemDemoEndpointTest.php
 
-# Frontend
+# Frontend Components & Pages
+rm frontend/src/components/ItemsDemo.vue
+rm frontend/src/pages/Demo.vue
 rm frontend/src/stores/items.ts
 rm frontend/src/stores/items.spec.ts
 ```
@@ -71,14 +91,18 @@ rm frontend/src/stores/items.spec.ts
 ### 2. Clean Routes
 
 **routes/api.php:**
-Remove any routes for items resource:
+Remove demo routes and imports:
 ```php
-// Remove this if present:
-Route::apiResource('items', ItemController::class);
+// Remove this import:
+use App\Http\Controllers\ItemDemoController;
+
+// Remove these routes:
+Route::get('/items', [ItemDemoController::class, 'index']);
+Route::post('/items/demo', [ItemDemoController::class, 'triggerDemo'])->middleware('auth:sanctum');
 ```
 
 **routes/channels.php:**
-Remove demo channels:
+Remove demo channels (if any were added):
 ```php
 // Remove these if present:
 Broadcast::channel('items.demo', function ($user) {
