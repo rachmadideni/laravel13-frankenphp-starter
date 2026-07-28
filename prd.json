@@ -471,13 +471,14 @@
         "README menyarankan menjalankan bin/doctor sebagai langkah pertama"
       ],
       "priority": 2,
-      "passes": false,
+      "passes": true,
       "labels": [
         "dx"
       ],
       "dependsOn": [
         "US-002"
-      ]
+      ],
+      "completionNotes": "Created bin/doctor diagnostic script checking Podman version (>= 4.4), subuid/subgid configuration, linger status, ip_unprivileged_port_start, and port availability (80, 443, 5432, 6379, 8080, 9000-9001, 5173). Script exits with status 0 if all checks pass, 1 if any fail, with clear error messages for remediation. Handles Linux, WSL2, and macOS with appropriate warnings for unavailable checks. Updated README to recommend running bin/doctor as first step before compose up."
     },
     {
       "id": "US-024",
