@@ -452,14 +452,15 @@
         "docs/RUNBOOK.md memuat langkah verifikasi setelah deploy"
       ],
       "priority": 2,
-      "passes": false,
+      "passes": true,
       "labels": [
         "deploy",
         "ops"
       ],
       "dependsOn": [
         "US-021"
-      ]
+      ],
+      "completionNotes": "Created bin/deploy (pull image → stop app → migrate --force → restart → wait for health). Created bin/rollback (find previous git tag → confirm → update Quadlet units → restart). Created bin/backup (pg_dump via podman exec, gzip, keep last 30). Created bin/restore (restore from backup with confirmation, verifies restore). All scripts exit 1 on failure. Created docs/RUNBOOK.md: deployment/rollback/backup procedures, monitoring, logging, 10+ troubleshooting scenarios, pre/post-deployment checklists, automated backup setup (cron/systemd timer), disaster recovery guide, incident response checklist."
     },
     {
       "id": "US-023",
