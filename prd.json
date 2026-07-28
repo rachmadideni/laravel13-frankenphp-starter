@@ -493,13 +493,14 @@
         "docs/REMOVE-DEMO.md mendaftar seluruh berkas berlabel @demo"
       ],
       "priority": 2,
-      "passes": false,
+      "passes": true,
       "labels": [
         "dx"
       ],
       "dependsOn": [
         "US-001"
-      ]
+      ],
+      "completionNotes": "Created bin/rename-project script that renames project name across composer.json, package.json, .env.example, compose.yaml, and Quadlet units. Validates project name (lowercase/hyphens/alphanumeric), requires confirmation, verifies JSON/YAML validity after rename, checks no old name remains. Created docs/REMOVE-DEMO.md listing all @demo marked files (ItemDemoJob, ItemResource, ItemPolicy, ItemDemoCompleted, items table migration, ItemFactory, ItemDemoFlowTest, items store) with removal checklist and example Task app. Updated README with boilerplate usage guide: clone → rename → demo removal → create first domain model."
     },
     {
       "id": "US-025",
