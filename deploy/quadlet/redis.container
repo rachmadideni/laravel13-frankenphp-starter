@@ -1,0 +1,25 @@
+[Unit]
+Description=Redis cache and session store
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image=docker.io/library/redis:7-alpine
+ContainerName=app-redis
+Network=app
+
+PublishPort=6379:6379
+
+# Health check
+HealthCmd=/usr/local/bin/redis-cli ping
+HealthInterval=10s
+HealthRetries=5
+HealthStartPeriod=5s
+
+[Service]
+Restart=always
+RestartPolicy=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

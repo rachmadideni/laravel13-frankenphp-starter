@@ -1,0 +1,42 @@
+[Unit]
+Description=Laravel Reverb WebSocket server
+After=network-online.target pgsql.service redis.service
+Wants=network-online.target pgsql.service redis.service
+
+[Container]
+Image=docker.io/library/myapp:latest
+ContainerName=app-reverb
+Network=app
+
+# Environment variables (must match app.container)
+Environment=APP_ENV=production
+Environment=APP_DEBUG=false
+Environment=APP_NAME=myapp
+Environment=DB_CONNECTION=pgsql
+Environment=DB_HOST=app-pgsql
+Environment=DB_PORT=5432
+Environment=DB_DATABASE=app
+Environment=DB_USERNAME=app
+Environment=DB_PASSWORD=secret
+Environment=REDIS_HOST=app-redis
+Environment=REDIS_PORT=6379
+Environment=LOG_CHANNEL=stderr
+Environment=LOG_LEVEL=info
+
+# WebSocket port (typically 8080 for internal, proxied to 443 externally)
+PublishPort=8080:8080
+
+# Shared storage
+Volume=%h/.local/share/containers/storage/app-storage:/app/storage
+Volume=%h/.local/share/containers/storage/app-bootstrap:/app/bootstrap/cache
+
+# Start command
+Exec=php artisan reverb:start --host=0.0.0.0 --port=8080
+
+[Service]
+Restart=always
+RestartPolicy=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,145 @@
+#!/bin/bash
+# Provision VPS for rootless Podman application deployment
+# Requires: sudo, Podman >= 4.4, systemd
+# Usage: sudo ./bin/provision-vps [USERNAME]
+# Default username: app
+
+set -e
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+USERNAME="${1:-app}"
+
+if [ "$EUID" -ne 0 ]; then
+    echo -e "${RED}✗${NC} Must run as root (use sudo)"
+    exit 1
+fi
+
+echo "VPS Provisioning for rootless Podman"
+echo "===================================="
+echo "Username: $USERNAME"
+echo ""
+
+# 1. Check Podman version >= 4.4
+echo "Checking Podman..."
+if ! command -v podman &> /dev/null; then
+    echo -e "${RED}✗${NC} Podman not installed"
+    echo "   Fix: apt-get install -y podman podman-systemd"
+    exit 1
+fi
+
+version=$(podman --version | sed 's/.*[^0-9]\([0-9]*\.[0-9]*\).*/\1/')
+major=$(echo "$version" | cut -d. -f1)
+minor=$(echo "$version" | cut -d. -f2)
+
+if [ "$major" -lt 4 ] || ([ "$major" -eq 4 ] && [ "$minor" -lt 4 ]); then
+    echo -e "${RED}✗${NC} Podman version must be >= 4.4 (found $version)"
+    exit 1
+fi
+echo -e "${GREEN}✓${NC} Podman version $version"
+echo ""
+
+# 2. Create user if doesn't exist
+echo "Checking user $USERNAME..."
+if ! id "$USERNAME" &>/dev/null; then
+    echo "   Creating user $USERNAME..."
+    useradd --create-home --shell /bin/bash "$USERNAME"
+    echo -e "${GREEN}✓${NC} User created: $USERNAME"
+else
+    echo -e "${GREEN}✓${NC} User exists: $USERNAME"
+fi
+echo ""
+
+# 3. Configure subuid/subgid
+echo "Configuring subuid/subgid..."
+if grep -q "^$USERNAME:" /etc/subuid; then
+    echo -e "${GREEN}✓${NC} subuid already configured"
+else
+    echo "   Adding subuid range..."
+    usermod --add-subuids 100000-165535 "$USERNAME"
+    echo -e "${GREEN}✓${NC} subuid added: 100000-165535"
+fi
+
+if grep -q "^$USERNAME:" /etc/subgid; then
+    echo -e "${GREEN}✓${NC} subgid already configured"
+else
+    echo "   Adding subgid range..."
+    usermod --add-subgids 100000-165535 "$USERNAME"
+    echo -e "${GREEN}✓${NC} subgid added: 100000-165535"
+fi
+echo ""
+
+# 4. Enable linger (services survive logout)
+echo "Enabling user linger..."
+if loginctl show-user "$USERNAME" -p Linger | grep -q "Linger=yes"; then
+    echo -e "${GREEN}✓${NC} Linger already enabled"
+else
+    echo "   Enabling linger for $USERNAME..."
+    loginctl enable-linger "$USERNAME"
+    echo -e "${GREEN}✓${NC} Linger enabled"
+fi
+echo ""
+
+# 5. Configure ip_unprivileged_port_start to allow binding port 80
+echo "Configuring unprivileged port binding..."
+current_start=$(cat /proc/sys/net/ipv4/ip_unprivileged_port_start)
+if [ "$current_start" -le 80 ]; then
+    echo -e "${GREEN}✓${NC} ip_unprivileged_port_start already <= 80 (value: $current_start)"
+else
+    echo "   Setting ip_unprivileged_port_start to 80..."
+    sysctl -w net.ipv4.ip_unprivileged_port_start=80
+    # Persist across reboot
+    echo "net.ipv4.ip_unprivileged_port_start=80" >> /etc/sysctl.d/99-unprivileged-ports.conf
+    echo -e "${GREEN}✓${NC} ip_unprivileged_port_start set to 80"
+fi
+echo ""
+
+# 6. Create application directories
+echo "Creating application directories..."
+app_home="/home/$USERNAME"
+storage_dir="$app_home/.local/share/containers/storage"
+
+mkdir -p "$storage_dir/app-pgsql"
+mkdir -p "$storage_dir/app-redis"
+mkdir -p "$storage_dir/app-minio"
+mkdir -p "$storage_dir/app-storage"
+mkdir -p "$storage_dir/app-bootstrap"
+
+chown -R "$USERNAME:$USERNAME" "$storage_dir"
+echo -e "${GREEN}✓${NC} Application directories created"
+echo ""
+
+# 7. Copy Quadlet units
+echo "Installing Quadlet units..."
+quadlet_dir="$app_home/.config/containers/systemd"
+mkdir -p "$quadlet_dir"
+
+# Copy from deploy/quadlet/ (assumes running from repo root)
+if [ -d "deploy/quadlet" ]; then
+    cp deploy/quadlet/*.network "$quadlet_dir/" 2>/dev/null || true
+    cp deploy/quadlet/*.container "$quadlet_dir/" 2>/dev/null || true
+    chown "$USERNAME:$USERNAME" "$quadlet_dir"/*
+    echo -e "${GREEN}✓${NC} Quadlet units installed"
+else
+    echo -e "${YELLOW}⚠${NC} deploy/quadlet not found (skip unit copy)"
+fi
+echo ""
+
+# Summary
+echo "===================================="
+echo -e "${GREEN}Provisioning complete!${NC}"
+echo ""
+echo "Next steps:"
+echo "1. Set APP_KEY in Quadlet units or pass at container start"
+echo "2. Build/push image: docker.io/library/myapp:latest"
+echo "3. Load Quadlet units: systemctl --user daemon-reload"
+echo "4. Start services: systemctl --user start app.service"
+echo "5. Enable autostart: systemctl --user enable app.service horizon.service reverb.service scheduler.service"
+echo ""
+echo "Verify:"
+echo "  sudo -u $USERNAME systemctl --user status app.service"
+echo "  sudo -u $USERNAME systemctl --user list-units --type=service --all"
+echo ""

@@ -1,0 +1,2 @@
+Unit systemd Quadlet untuk produksi (rootless Podman). Diisi pada story deploy.
+Nama image wajib FQIN, mis. docker.io/library/postgres:17.

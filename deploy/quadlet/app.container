@@ -1,0 +1,52 @@
+[Unit]
+Description=Laravel application server (Octane)
+After=network-online.target pgsql.service redis.service
+Wants=network-online.target pgsql.service redis.service
+
+[Container]
+Image=docker.io/library/myapp:latest
+ContainerName=app
+Network=app
+
+# Environment variables
+Environment=APP_ENV=production
+Environment=APP_DEBUG=false
+Environment=APP_NAME=myapp
+Environment=DB_CONNECTION=pgsql
+Environment=DB_HOST=app-pgsql
+Environment=DB_PORT=5432
+Environment=DB_DATABASE=app
+Environment=DB_USERNAME=app
+Environment=DB_PASSWORD=secret
+Environment=REDIS_HOST=app-redis
+Environment=REDIS_PORT=6379
+Environment=LOG_CHANNEL=stderr
+Environment=LOG_LEVEL=info
+
+# Application key — MUST be set before start, bake into image or pass at deploy time
+# Environment=APP_KEY=base64:xxx
+
+# Ports: 80 (HTTP), 443 (HTTPS via reverse proxy)
+PublishPort=80:80
+
+# Application and Laravel storage
+Volume=%h/.local/share/containers/storage/app-storage:/app/storage
+Volume=%h/.local/share/containers/storage/app-bootstrap:/app/bootstrap/cache
+
+# Health check
+HealthCmd=/usr/local/bin/php -r "exit((curl_exec(curl_init('http://localhost/up')) === false) ? 1 : 0);"
+HealthInterval=30s
+HealthRetries=3
+HealthStartPeriod=10s
+HealthTimeout=5s
+
+# Start command — run Octane
+Exec=php artisan octane:start --server=frankenphp --host=0.0.0.0 --port=80 --admin-port=2019 --max-requests=500
+
+[Service]
+Restart=always
+RestartPolicy=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

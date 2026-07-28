@@ -1,0 +1,4 @@
+[Network]
+# Shared network for all application services
+# IP range 10.88.0.0/16 allows for 65k containers per podman rootless session
+Driver=bridge

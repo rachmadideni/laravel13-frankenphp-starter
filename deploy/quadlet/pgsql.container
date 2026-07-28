@@ -1,0 +1,31 @@
+[Unit]
+Description=PostgreSQL database for application
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image=docker.io/library/postgres:17-alpine
+ContainerName=app-pgsql
+Network=app
+
+Environment=POSTGRES_USER=app
+Environment=POSTGRES_PASSWORD=secret
+Environment=POSTGRES_DB=app
+
+Volume=%h/.local/share/containers/storage/app-pgsql:/var/lib/postgresql/data
+
+PublishPort=5432:5432
+
+# Health check
+HealthCmd=/usr/bin/pg_isready -U app
+HealthInterval=10s
+HealthRetries=5
+HealthStartPeriod=10s
+
+[Service]
+Restart=always
+RestartPolicy=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,30 @@
+[Unit]
+Description=MinIO S3-compatible object storage
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image=docker.io/minio/minio:latest
+ContainerName=app-minio
+Network=app
+
+Environment=MINIO_ROOT_USER=minioadmin
+Environment=MINIO_ROOT_PASSWORD=minioadmin
+
+# Data directory
+Volume=%h/.local/share/containers/storage/app-minio:/data
+
+# API and console ports
+PublishPort=9000:9000
+PublishPort=9001:9001
+
+# Start command
+Exec=server /data --console-address ":9001"
+
+[Service]
+Restart=always
+RestartPolicy=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
